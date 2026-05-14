@@ -177,9 +177,9 @@ export function ScreenshotParser({ onParsed }: Props) {
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
               <p className="font-medium mb-1">❌ 解析エラー</p>
               <p className="whitespace-pre-wrap break-words">{errorMsg}</p>
-              {errorMsg.includes("credit") && (
+              {(errorMsg.includes("API キー") || errorMsg.includes("GEMINI_API_KEY")) && (
                 <p className="mt-2 text-foreground">
-                  → <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noreferrer" className="underline">Anthropic Console</a> でクレジットを追加してください（最小 $5〜）
+                  → <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="underline">Google AI Studio</a> で無料APIキーを取得してください
                 </p>
               )}
             </div>

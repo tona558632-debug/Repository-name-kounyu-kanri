@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/lib/supabase/server";
 
 const PROMPT = `この画像はフリマサイトや通販サイトの購入履歴・購入確認・商品ページです。
@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY が設定されていません" }, { status: 500 });
+  if (!process.env.GEMINI_API_KEY) {
+    return NextResponse.json({ error: "GEMINI_API_KEY が設定されていません" }, { status: 500 });
   }
 
   try {
@@ -34,31 +34,21 @@ export async function POST(request: NextRequest) {
     const base64 = Buffer.from(bytes).toString("base64");
 
     const mimeType = image.type || "image/jpeg";
-    const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
-    const mediaType = (validTypes as readonly string[]).includes(mimeType)
-      ? (mimeType as (typeof validTypes)[number])
-      : "image/jpeg";
+    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"] as const;
+    const finalMime = (validTypes as readonly string[]).includes(mimeType) ? mimeType : "image/jpeg";
 
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mediaType, data: base64 },
-            },
-            { type: "text", text: PROMPT },
-          ],
-        },
-      ],
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      generationConfig: { responseMimeType: "application/json" },
     });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "{}";
+    const result = await model.generateContent([
+      { text: PROMPT },
+      { inlineData: { data: base64, mimeType: finalMime } },
+    ]);
+
+    const text = result.response.text();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
 
@@ -66,20 +56,17 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     console.error("[parse-screenshot]", err);
 
-    // Anthropic API のエラーメッセージをクライアントに伝える
     let message = "解析に失敗しました";
     if (err && typeof err === "object") {
-      const e = err as { status?: number; error?: { error?: { message?: string } }; message?: string };
-      const apiMessage = e.error?.error?.message;
-      if (apiMessage) {
-        // クレジット不足のエラーを日本語化
-        if (apiMessage.includes("credit balance is too low")) {
-          message = "Anthropic API のクレジット残高が不足しています。https://console.anthropic.com/settings/billing でクレジットを追加してください（$5から）。";
+      const e = err as { message?: string; status?: number };
+      if (e.message) {
+        if (e.message.includes("API key")) {
+          message = "Gemini API キーが無効です。設定を確認してください。";
+        } else if (e.message.includes("quota") || e.message.includes("rate")) {
+          message = "Gemini API の無料枠を超過しました。1分ほど待ってから再試行してください。";
         } else {
-          message = `Anthropic API: ${apiMessage}`;
+          message = `Gemini: ${e.message}`;
         }
-      } else if (e.message) {
-        message = e.message;
       }
     }
 
