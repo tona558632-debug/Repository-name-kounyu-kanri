@@ -14,5 +14,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=認証に失敗しました`);
+  return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent("認証に失敗しました")}`);
 }

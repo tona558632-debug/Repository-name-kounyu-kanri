@@ -32,7 +32,7 @@ export async function loginWithMagicLink(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect("/login?message=メールを送信しました。受信箱を確認してください。");
+  redirect(`/login?message=${encodeURIComponent("メールを送信しました。受信箱を確認してください。")}`);
 }
 
 export async function logout() {
