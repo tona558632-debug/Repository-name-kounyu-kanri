@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(npm --version)",
+      "mcp__Claude_Preview__preview_start"
+    ]
+  }
+}
