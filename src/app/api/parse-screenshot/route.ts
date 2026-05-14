@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   // 認証チェック
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: "ANTHROPIC_API_KEY が設定されていません" }, { status: 500 });
@@ -30,7 +30,6 @@ export async function POST(request: NextRequest) {
     const image = formData.get("image") as File | null;
     if (!image) return NextResponse.json({ error: "画像がありません" }, { status: 400 });
 
-    // Base64変換
     const bytes = await image.arrayBuffer();
     const base64 = Buffer.from(bytes).toString("base64");
 
@@ -64,8 +63,26 @@ export async function POST(request: NextRequest) {
     const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
 
     return NextResponse.json(parsed);
-  } catch (err) {
+  } catch (err: unknown) {
     console.error("[parse-screenshot]", err);
-    return NextResponse.json({ error: "解析に失敗しました" }, { status: 500 });
+
+    // Anthropic API のエラーメッセージをクライアントに伝える
+    let message = "解析に失敗しました";
+    if (err && typeof err === "object") {
+      const e = err as { status?: number; error?: { error?: { message?: string } }; message?: string };
+      const apiMessage = e.error?.error?.message;
+      if (apiMessage) {
+        // クレジット不足のエラーを日本語化
+        if (apiMessage.includes("credit balance is too low")) {
+          message = "Anthropic API のクレジット残高が不足しています。https://console.anthropic.com/settings/billing でクレジットを追加してください（$5から）。";
+        } else {
+          message = `Anthropic API: ${apiMessage}`;
+        }
+      } else if (e.message) {
+        message = e.message;
+      }
+    }
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
