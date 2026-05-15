@@ -39,23 +39,30 @@ export function ItemListFilters({ marketplaces, currentParams }: Props) {
         />
       </div>
       <div className="flex gap-2">
-        <Select value={currentParams.status ?? ""} onValueChange={(v) => update("status", v)}>
+        <Select
+          value={currentParams.status ?? "all"}
+          onValueChange={(v) => update("status", v === "all" ? "" : v)}
+        >
           <SelectTrigger className="flex-1 text-xs h-8">
             <SelectValue placeholder="使用状況" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">すべて</SelectItem>
+            {/* Radix Select は value="" を許容しないため "all" をセンチネルに使う */}
+            <SelectItem value="all">すべて</SelectItem>
             {usageStatusValues.map((s) => (
               <SelectItem key={s} value={s}>{usageStatusLabels[s]}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Select value={currentParams.marketplace ?? ""} onValueChange={(v) => update("marketplace", v)}>
+        <Select
+          value={currentParams.marketplace ?? "all"}
+          onValueChange={(v) => update("marketplace", v === "all" ? "" : v)}
+        >
           <SelectTrigger className="flex-1 text-xs h-8">
             <SelectValue placeholder="購入元" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">すべて</SelectItem>
+            <SelectItem value="all">すべて</SelectItem>
             {marketplaces.map((m) => (
               <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
             ))}
