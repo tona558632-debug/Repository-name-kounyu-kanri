@@ -1,10 +1,45 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Camera, Clipboard, FolderOpen, Loader2, Sparkles } from "lucide-react";
+
+// 長辺 1280px / JPEG 80% に圧縮。HEIC など Canvas が読めない形式は元ファイルを返す。
+async function compressImage(file: File, maxSize = 1280, quality = 0.8): Promise<File> {
+  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") {
+    return file;
+  }
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      const ratio = Math.min(1, maxSize / Math.max(width, height));
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(file);
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob || blob.size >= file.size) return resolve(file);
+          const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+          resolve(new File([blob], name, { type: "image/jpeg" }));
+        },
+        "image/jpeg",
+        quality,
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
 
 export type ParsedPurchase = {
   name?: string | null;
@@ -23,7 +58,42 @@ export function ScreenshotParser({ onParsed }: Props) {
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [retryIn, setRetryIn] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const lastFileRef = useRef<File | null>(null);
+
+  const handleFile = useCallback(async (file: File) => {
+    lastFileRef.current = file;
+    setErrorMsg(null);
+    setRetryIn(null);
+    setPreview(URL.createObjectURL(file));
+    setLoading(true);
+    try {
+      const compressed = await compressImage(file);
+      const fd = new FormData();
+      fd.append("image", compressed);
+      const res = await fetch("/api/parse-screenshot", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 429 && typeof data?.retryAfterSec === "number") {
+          setErrorMsg(data?.error ?? "Gemini API の無料枠を超過しました。");
+          setRetryIn(data.retryAfterSec);
+          return;
+        }
+        throw new Error(data?.error ?? `解析失敗 (HTTP ${res.status})`);
+      }
+      onParsed(data);
+      toast.success("購入情報を読み取りました ✓");
+      setOpen(false);
+      setPreview(null);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "解析に失敗しました";
+      setErrorMsg(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [onParsed]);
 
   // ダイアログ表示中は Ctrl+V / Cmd+V で貼り付け可能
   useEffect(() => {
@@ -45,33 +115,20 @@ export function ScreenshotParser({ onParsed }: Props) {
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, handleFile]);
 
-  async function handleFile(file: File) {
-    setErrorMsg(null);
-    setPreview(URL.createObjectURL(file));
-    setLoading(true);
-    try {
-      const fd = new FormData();
-      fd.append("image", file);
-      const res = await fetch("/api/parse-screenshot", { method: "POST", body: fd });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error ?? `解析失敗 (HTTP ${res.status})`);
-      }
-      onParsed(data);
-      toast.success("購入情報を読み取りました ✓");
-      setOpen(false);
-      setPreview(null);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "解析に失敗しました";
-      setErrorMsg(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
+  // レート制限カウントダウン → 0 で自動再試行
+  useEffect(() => {
+    if (retryIn === null) return;
+    if (retryIn <= 0) {
+      const f = lastFileRef.current;
+      setRetryIn(null);
+      if (f) handleFile(f);
+      return;
     }
-  }
+    const t = setTimeout(() => setRetryIn((v) => (v === null ? null : v - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [retryIn, handleFile]);
 
   function openPicker(capture?: "environment" | "user") {
     if (!fileRef.current) return;
@@ -110,7 +167,7 @@ export function ScreenshotParser({ onParsed }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPreview(null); setErrorMsg(null); } }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPreview(null); setErrorMsg(null); setRetryIn(null); lastFileRef.current = null; } }}>
       <DialogTrigger asChild>
         <Button type="button" variant="outline" className="w-full gap-2">
           <Sparkles className="h-4 w-4 text-purple-500" />
@@ -150,6 +207,11 @@ export function ScreenshotParser({ onParsed }: Props) {
             <div className="flex items-center justify-center py-4 gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               AIが解析中…
+            </div>
+          ) : retryIn !== null ? (
+            <div className="flex items-center justify-center py-4 gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              レート制限中… {retryIn}秒後に自動再試行します
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-2">

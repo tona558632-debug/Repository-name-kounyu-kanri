@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      // 2.5-flash-lite: 同じ 15 RPM だが日次上限が 2.0-flash の 5 倍 (1000 RPD)
+      model: "gemini-2.5-flash-lite",
       generationConfig: { responseMimeType: "application/json" },
     });
 
@@ -57,19 +58,37 @@ export async function POST(request: NextRequest) {
     console.error("[parse-screenshot]", err);
 
     let message = "解析に失敗しました";
+    let code: "rate_limit" | "invalid_key" | "unknown" = "unknown";
+    let retryAfterSec: number | null = null;
+
     if (err && typeof err === "object") {
       const e = err as { message?: string; status?: number };
-      if (e.message) {
-        if (e.message.includes("API key")) {
-          message = "Gemini API キーが無効です。設定を確認してください。";
-        } else if (e.message.includes("quota") || e.message.includes("rate")) {
-          message = "Gemini API の無料枠を超過しました。1分ほど待ってから再試行してください。";
-        } else {
-          message = `Gemini: ${e.message}`;
-        }
+      const raw = e.message ?? "";
+
+      // Gemini は 429 のとき details に "retryDelay":"37s" を含むことが多い
+      const retryMatch = raw.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+      if (retryMatch) retryAfterSec = Math.ceil(parseFloat(retryMatch[1]));
+
+      if (raw.includes("API key") || raw.includes("API_KEY_INVALID")) {
+        message = "Gemini API キーが無効です。設定を確認してください。";
+        code = "invalid_key";
+      } else if (
+        raw.includes("quota") ||
+        raw.includes("rate") ||
+        raw.includes("RESOURCE_EXHAUSTED") ||
+        raw.includes("429")
+      ) {
+        code = "rate_limit";
+        if (!retryAfterSec) retryAfterSec = 60;
+        message = `Gemini API の無料枠を超過しました。${retryAfterSec}秒後に自動再試行します。`;
+      } else if (raw) {
+        message = `Gemini: ${raw}`;
       }
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: message, code, retryAfterSec },
+      { status: code === "rate_limit" ? 429 : 500 }
+    );
   }
 }
