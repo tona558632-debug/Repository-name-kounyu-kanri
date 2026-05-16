@@ -253,6 +253,29 @@ export async function markUsed(itemId: string): Promise<ActionResult> {
   return { success: true };
 }
 
+// ——— 出品候補への手動追加/除外 ——————————————————————————————
+export async function toggleForceListingCandidate(
+  itemId: string,
+  force: boolean,
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "ログインが必要です" };
+
+  const { error } = await supabase
+    .from("items")
+    .update({ force_listing_candidate: force })
+    .eq("id", itemId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/items/${itemId}`);
+  revalidatePath("/listing-candidates");
+  revalidatePath("/");
+  return { success: true };
+}
+
 // ——— 論理削除 ——————————————————————————————————————————
 export async function softDeleteItem(itemId: string): Promise<ActionResult> {
   const supabase = await createClient();

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { isListingCandidate, getListingCandidateThresholdDays } from "@/lib/listing-candidates";
+import { isListingCandidate } from "@/lib/listing-candidates";
+import { loadListingCandidateSettings } from "@/lib/listing-candidates-settings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,13 +16,13 @@ export default async function HomePage() {
 
   const { data: items } = await supabase
     .from("items")
-    .select("id, name, usage_status, last_used_at, purchase_price, category:categories(name, code), created_at")
+    .select("id, name, usage_status, last_used_at, purchase_price, force_listing_candidate, category:categories(name, code), created_at")
     .eq("is_deleted", false)
     .order("created_at", { ascending: false });
 
   const safeItems = items ?? [];
-  const threshold = getListingCandidateThresholdDays();
-  const candidateCount = safeItems.filter((i) => isListingCandidate(i as Parameters<typeof isListingCandidate>[0], new Date(), threshold)).length;
+  const listingSettings = await loadListingCandidateSettings();
+  const candidateCount = safeItems.filter((i) => isListingCandidate(i as Parameters<typeof isListingCandidate>[0], new Date(), listingSettings)).length;
 
   const statusCounts = safeItems.reduce<Record<string, number>>((acc, item) => {
     acc[item.usage_status] = (acc[item.usage_status] ?? 0) + 1;
@@ -95,7 +96,7 @@ export default async function HomePage() {
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="font-medium text-orange-800">出品候補が {candidateCount} 件あります</p>
-              <p className="text-xs text-orange-600 mt-0.5">未使用または{threshold}日以上未使用</p>
+              <p className="text-xs text-orange-600 mt-0.5">設定条件に該当（{listingSettings.thresholdDays}日基準）</p>
             </div>
             <Button asChild variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-100">
               <Link href="/listing-candidates">確認する</Link>

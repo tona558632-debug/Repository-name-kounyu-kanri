@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { isListingCandidate, getListingCandidateThresholdDays } from "@/lib/listing-candidates";
+import { isListingCandidate } from "@/lib/listing-candidates";
+import { loadListingCandidateSettings } from "@/lib/listing-candidates-settings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,17 +15,17 @@ export const metadata = { title: "出品候補" };
 
 export default async function ListingCandidatesPage() {
   const supabase = await createClient();
-  const threshold = getListingCandidateThresholdDays();
+  const settings = await loadListingCandidateSettings();
   const now = new Date();
 
   const { data: items } = await supabase
     .from("items")
-    .select("id, name, usage_status, last_used_at, purchase_price, purchase_date, category:categories(name, code), marketplace:marketplaces(name)")
+    .select("id, name, usage_status, last_used_at, purchase_price, purchase_date, force_listing_candidate, category:categories(name, code), marketplace:marketplaces(name)")
     .eq("is_deleted", false)
     .order("last_used_at", { ascending: true, nullsFirst: true });
 
   const candidates = (items ?? []).filter((i) =>
-    isListingCandidate(i as Parameters<typeof isListingCandidate>[0], now, threshold),
+    isListingCandidate(i as Parameters<typeof isListingCandidate>[0], now, settings),
   );
 
   function daysSinceUsed(last_used_at: string | null): string {
@@ -39,7 +40,7 @@ export default async function ListingCandidatesPage() {
         <div>
           <h1 className="text-lg font-bold flex items-center gap-2"><Tag className="h-5 w-5" />出品候補</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            未使用 または {threshold}日以上未使用のアイテム
+            設定した条件（{settings.thresholdDays}日 / {settings.includedStatuses.length}ステータス）に該当
           </p>
         </div>
         <Badge variant="secondary">{candidates.length}件</Badge>

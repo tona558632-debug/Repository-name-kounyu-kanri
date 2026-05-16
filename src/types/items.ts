@@ -72,6 +72,7 @@ export type Item = {
   last_used_at: string | null;
   storage_location: string | null;
   is_deleted: boolean;
+  force_listing_candidate: boolean;
   created_at: string;
   updated_at: string;
   category?: Category;

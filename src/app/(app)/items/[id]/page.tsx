@@ -8,6 +8,7 @@ import { UsageStatusBadge } from "@/components/usage-status-badge";
 import { StatusChangeButton } from "@/components/status-change-button";
 import { MarkUsedButton } from "@/components/mark-used-button";
 import { DeleteItemButton } from "@/components/delete-item-button";
+import { ForceListingCandidateButton } from "@/components/force-listing-candidate-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +100,13 @@ export default async function ItemDetailPage({ params }: Props) {
             </div>
           </div>
           <StatusChangeButton itemId={item.id} currentStatus={item.usage_status} />
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-xs text-muted-foreground">出品候補</span>
+            <ForceListingCandidateButton
+              itemId={item.id}
+              current={Boolean(item.force_listing_candidate)}
+            />
+          </div>
         </CardContent>
       </Card>
 
